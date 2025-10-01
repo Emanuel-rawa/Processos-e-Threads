@@ -1,111 +1,118 @@
-#include <chrono>
-#include <cmath>
-#include <cstdlib>
-#include <fstream>
-#include <functional>
 #include <iostream>
-#include <string>
-#include <thread>
+#include <fstream>
 #include <vector>
-#include <sys/stat.h>  // Para criar diretório
+#include <thread>
+#include <cmath>
 
-using namespace std;
+// Função para multiplicar um bloco de linhas
+void multiplyBlock(const std::vector<std::vector<int>> &A,
+                   const std::vector<std::vector<int>> &B,
+                   std::vector<std::vector<int>> &C,
+                   int startRow, int endRow) {
+    int n1 = A.size();
+    int m1 = A[0].size();
+    int m2 = B[0].size();
 
-struct Matrix {
-  int line, col;
-  vector<vector<long long>> data;
-};
-
-Matrix matrixLoad(const string &filename) {
-  ifstream file(filename);
-  if (not file.is_open()) {
-    cerr << "Erro ao acessar a matriz: " << filename << '\n';
-    exit(1);
-  }
-  Matrix M;
-  file >> M.line >> M.col;
-  M.data.resize(M.line, vector<long long>(M.col));
-  for (int i = 0; i < M.line; i++) {
-    for (int j = 0; j < M.col; j++) {
-      file >> M.data[i][j];
+    for (int i = startRow; i < endRow; i++) {
+        for (int j = 0; j < m2; j++) {
+            int sum = 0;
+            for (int k = 0; k < m1; k++) {
+                sum += A[i][k] * B[k][j];
+            }
+            C[i][j] = sum;
+        }
     }
-  }
-  file.close();
-  return M;
 }
 
-// Função auxiliar para criar diretório
-void createDirectory(const string& path) {
-  #ifdef _WIN32
-    _mkdir(path.c_str());
-  #else
-    mkdir(path.c_str(), 0777);
-  #endif
+// Lê matriz de arquivo
+std::vector<std::vector<int>> readMatrix(const std::string &filename) {
+    std::ifstream in(filename);
+    if (!in.is_open()) {
+        throw std::runtime_error("Erro ao abrir arquivo " + filename);
+    }
+
+    int n, m;
+    in >> n >> m;
+    std::vector<std::vector<int>> M(n, std::vector<int>(m));
+
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < m; j++) {
+            in >> M[i][j];
+        }
+    }
+    return M;
 }
 
-// Calcular P elementos da matriz resultado
-void parsing(const Matrix &A, const Matrix &B, int first, int last,
-             int id_thread) {
-  auto start = chrono::high_resolution_clock::now();
-  int n1 = A.line, m2 = B.col;
-  
-  string filename = "../data/result_" + to_string(id_thread) + ".txt";
-  ofstream file(filename);
-  
-  if (not file.is_open()) {
-    cerr << "Erro ao abrir " << filename << '\n';
-    cerr << "Tentando criar a pasta ../data/\n";
-    return;
-  }
-  
-  file << n1 << " " << m2 << '\n';
-  for (int idx = first; idx < last; idx++) {
-    int i = idx / m2;
-    int j = idx % m2;
-    long long sum = 0;
-    for (int k = 0; k < A.col; k++) {
-      sum += A.data[i][k] * B.data[k][j];
+// Salva matriz em arquivo
+void writeMatrix(const std::string &filename, const std::vector<std::vector<int>> &M) {
+    std::ofstream out(filename);
+    if (!out.is_open()) {
+        throw std::runtime_error("Erro ao abrir arquivo de saída " + filename);
     }
-    file << i << " " << j << " " << sum << '\n';
-  }
-  
-  auto end = chrono::high_resolution_clock::now();
-  chrono::duration<double> duration = end - start;
-  file << "Tempo de execução: " << duration.count() << " segundos \n";
-  file.close();
+
+    int n = M.size();
+    int m = M[0].size();
+    out << n << " " << m << "\n";
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < m; j++) {
+            out << M[i][j] << " ";
+        }
+        out << "\n";
+    }
 }
 
 int main(int argc, char *argv[]) {
-  if (argc != 4) {
-    cerr << "Use: " << argv[0] << " M1.txt M2.txt p\n";
-    return 1;
-  }
-  
-  string file1{argv[1]};
-  string file2{argv[2]};
-  int p{stoi(argv[3])};
-  
-  // Criar a pasta data se não existir
-  createDirectory("../data");
-  
-  // Carregar as matrizes
-  Matrix M1 = matrixLoad(file1);
-  Matrix M2 = matrixLoad(file2);
-  
-  int len{M1.line * M2.col};
-  int num_threads = ceil((double)len / p);
-  vector<thread> threads;
-  
-  for (int t = 0; t < len; t++) {
-    int start = t * p;
-    int end = min(start + p, len);
-    threads.emplace_back(parsing, cref(M1), cref(M2), start, end, t + 1);
-  }
-  
-  for (auto &th : threads) {
-    th.join();
-  }
-  
-  cout << "Multiplicação concluída em " << len << " arquivos.\n";
-  return 0;
+    if (argc < 3) {
+        std::cerr << "Uso: " << argv[0] << " matriz1.txt matriz2.txt [p]\n";
+        return 1;
+    }
+
+    try {
+        std::string fileA = argv[1];
+        std::string fileB = argv[2];
+        std::string fileOut = "resultado_threads.txt";
+
+        // Lê matrizes
+        auto A = readMatrix(fileA);
+        auto B = readMatrix(fileB);
+
+        int n1 = A.size();
+        int m1 = A[0].size();
+        int n2 = B.size();
+        int m2 = B[0].size();
+
+        if (m1 != n2) {
+            throw std::runtime_error("Dimensões incompatíveis para multiplicação");
+        }
+
+        std::vector<std::vector<int>> C(n1, std::vector<int>(m2, 0));
+
+        // Número de threads
+        unsigned int hwThreads = std::thread::hardware_concurrency();
+        int p = (argc >= 4) ? std::stoi(argv[3]) : (hwThreads > 0 ? hwThreads : 4);
+
+        if (p > n1) p = n1; // não faz sentido mais threads do que linhas
+
+        std::vector<std::thread> threads;
+        int blockSize = std::ceil(n1 / static_cast<double>(p));
+
+        for (int t = 0; t < p; t++) {
+            int startRow = t * blockSize;
+            int endRow = std::min(startRow + blockSize, n1);
+            if (startRow >= n1) break;
+            threads.emplace_back(multiplyBlock, std::cref(A), std::cref(B), std::ref(C), startRow, endRow);
+        }
+
+        for (auto &th : threads) {
+            th.join();
+        }
+
+        writeMatrix(fileOut, C);
+
+    } catch (const std::exception &e) {
+        std::cerr << "Erro: " << e.what() << "\n";
+        return 1;
+    }
+
+    return 0;
 }

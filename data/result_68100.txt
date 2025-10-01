@@ -1,2 +1,2 @@
 400 400
-Tempo de execução: 0.000383638 segundos 
+Tempo de execução: 0.00305103 segundos 
