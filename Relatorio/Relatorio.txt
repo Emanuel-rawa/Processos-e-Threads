@@ -1,0 +1,18 @@
+Relatório de Resultados – Experimentos E1 e E2
+
+a) Resultados do Experimento E1
+No experimento E1, percebemos que o programa sequencial demorou cada vez mais à medida que aumentávamos o tamanho das matrizes. Esse resultado já era esperado, pois a multiplicação de matrizes é uma operação com custo computacional muito alto: quanto maiores os números envolvidos, mais tempo a execução leva.
+Quando utilizamos as versões paralelas (com processos e com threads), os tempos de execução caíram de forma considerável. Isso acontece porque a carga de trabalho foi dividida entre diferentes unidades de processamento, o que permitiu aproveitar melhor os recursos da máquina. Esse ganho de desempenho foi ainda mais evidente para matrizes maiores, em que o sequencial demorava muito.]
+
+b) Resultados do Experimento E2
+No experimento E2, variamos a quantidade de processos (P) usados para executar a multiplicação. No começo, conforme aumentamos o número de processos, o programa ficou cada vez mais rápido, mostrando o efeito positivo do paralelismo.
+Entretanto, esse comportamento não se manteve para sempre. Chegou um ponto em que adicionar mais processos deixou de trazer ganhos reais e passou até a atrapalhar. Isso acontece porque cada processo extra gera custos de criação e comunicação — chamados de overhead. Assim, em vez de acelerar, o excesso de processos fez com que o tempo de execução voltasse a crescer.
+Em resumo, o experimento mostrou que existe um “meio-termo”: poucos processos não aproveitam bem o paralelismo, e processos demais causam overhead desnecessário.
+
+c) Valor ideal de P
+Analisando os resultados, identificamos que o melhor valor de P é aquele que equilibra eficiência e custo de comunicação. Na simulação realizada, o desempenho mais rápido aconteceu em torno de 400 processos. Nesse ponto, o tempo médio foi o menor, pois havia paralelismo suficiente para dividir a carga de trabalho sem que o overhead comprometesse a execução.
+Portanto, podemos concluir que esse valor de P é o mais indicado para a multiplicação das matrizes M1 e M2 no cenário estudado.
+
+Conclusão
+Portanto, os experimentos comprovaram a importância do paralelismo em operações custosas como a multiplicação de matrizes. Enquanto o sequencial se torna inviável para matrizes grandes, a execução com múltiplos processos ou threads reduz significativamente o tempo total.
+Por outro lado, vimos que o paralelismo não é ilimitado: existe um ponto ótimo que deve ser buscado. Se usarmos processos de menos, não aproveitamos o potencial da máquina; se usarmos processos demais, o sistema perde desempenho por causa do overhead.
