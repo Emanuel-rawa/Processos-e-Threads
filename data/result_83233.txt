@@ -1,2 +1,0 @@
-400 400
-Tempo de execução: 2.119e-05 segundos 
