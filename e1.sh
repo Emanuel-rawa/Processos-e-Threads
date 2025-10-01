@@ -1,140 +1,148 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -u
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SRC_DIR="$PROJECT_ROOT/src"
+DATA_DIR="$PROJECT_ROOT/data"
+RESULT_DIR="$PROJECT_ROOT/result"
 
-# Script para executar experimento E1
-# Estrutura esperada:
-# trabalho/
-#   ├─ src/
-#   │   ├─ auxiliar.cpp -> compila para 'gerador'
-#   │   ├─ sequencial.cpp -> compila para 'sequencial'
-#   │   ├─ threads.cpp -> compila para 'threads'
-#   │   └─ Processos.cpp -> compila para 'processos'
-#   ├─ data/
-#   └─ results/
+REPEATS=10
+START_SIZE=100
+TIMEOUT=3600                # timeout por execução em segundos
+SEQ_STOP_MS=$((120 * 1000)) # 2 minutos em ms
 
-# Criar pasta para resultados
-mkdir -p results
+mkdir -p "$DATA_DIR" "$RESULT_DIR"
 
-# Arquivo para armazenar resultados
-RESULTADO="results/experimento_e1.csv"
-echo "Tamanho,Programa,Tempo_Medio,Desvio_Padrao" >$RESULTADO
-
-# Número de execuções por teste
-NUM_EXEC=10
-
-# Função para executar e medir tempo
-executar_teste() {
-  local programa=$1
-  local m1_file=$2
-  local m2_file=$3
-  local p_value=$4
-  local tamanho=$5
-
-  echo "  Executando $programa com matrizes ${tamanho}x${tamanho}..."
-
-  # Array para armazenar os tempos
-  tempos=()
-
-  for i in $(seq 1 $NUM_EXEC); do
-    echo -n "    Execução $i/$NUM_EXEC... "
-
-    # Executar e capturar tempo
-    inicio=$(date +%s.%N)
-    if [ "$programa" == "sequencial" ]; then
-      ./src/$programa $m1_file $m2_file >/dev/null 2>&1
-    else
-      ./src/$programa $m1_file $m2_file $p_value >/dev/null 2>&1
-    fi
-    fim=$(date +%s.%N)
-    tempo=$(echo "$fim - $inicio" | bc)
-
-    tempos+=($tempo)
-    echo "${tempo}s"
-  done
-
-  # Calcular média e desvio padrão
-  soma=0
-  for t in "${tempos[@]}"; do
-    soma=$(echo "$soma + $t" | bc)
-  done
-  media=$(echo "scale=4; $soma / $NUM_EXEC" | bc)
-
-  # Calcular desvio padrão
-  soma_quad=0
-  for t in "${tempos[@]}"; do
-    diff=$(echo "$t - $media" | bc)
-    quad=$(echo "$diff * $diff" | bc)
-    soma_quad=$(echo "$soma_quad + $quad" | bc)
-  done
-  desvio=$(echo "scale=4; sqrt($soma_quad / $NUM_EXEC)" | bc)
-
-  # Salvar resultado
-  echo "$tamanho,$programa,$media,$desvio" >>$RESULTADO
-  echo "  Tempo médio: ${media}s (±${desvio}s)"
+echo "Compilando códigos..."
+g++ -O2 "$SRC_DIR/auxiliar.cpp" -o "$SRC_DIR/auxiliar" || {
+  echo "Erro ao compilar auxiliar"
+  exit 1
+}
+g++ -O2 "$SRC_DIR/sequencial.cpp" -o "$SRC_DIR/sequencial" || {
+  echo "Erro ao compilar sequencial"
+  exit 1
+}
+g++ -O2 "$SRC_DIR/threads.cpp" -lpthread -o "$SRC_DIR/threads" || {
+  echo "Erro ao compilar threads"
+  exit 1
+}
+g++ -O2 "$SRC_DIR/Processos.cpp" -o "$SRC_DIR/processos" || {
+  echo "Erro ao compilar Processos"
+  exit 1
 }
 
-# Gerar matrizes e executar testes
-tamanho=100
-max_tempo_sequencial=0
+OUT_CSV="$RESULT_DIR/tempos.csv"
+echo "Programa,Tamanho,TempoMedio_ms,Sucessos,TotalRuns" >"$OUT_CSV"
 
-echo "======================================"
-echo "Iniciando Experimento E1"
-echo "======================================"
-echo ""
+# Função que executa um binário e retorna tempo em ms ou ERR
+run_prog() {
+  local bin="$1"
+  shift
+  local args=("$@")
+  pushd "$SRC_DIR" >/dev/null || return 1
+  local start=$(date +%s%3N)
+  timeout "${TIMEOUT}"s ./"$bin" "${args[@]}" >/dev/null 2>&1
+  local code=$?
+  local end=$(date +%s%3N)
+  popd >/dev/null || return 1
 
-while [ $(echo "$max_tempo_sequencial < 120" | bc) -eq 1 ]; do
-  echo ""
-  echo "======================================"
-  echo "Testando matrizes ${tamanho}x${tamanho}"
-  echo "======================================"
+  if [ "$code" -eq 0 ]; then
+    echo $((end - start))
+  else
+    echo "ERR:$code"
+  fi
+}
 
-  # Gerar matrizes (gerador cria automaticamente na pasta data/)
-  echo "Gerando matrizes ${tamanho}x${tamanho}..."
-  ./src/gerador $tamanho $tamanho $tamanho $tamanho
+# Função que roda REPEATS vezes e calcula média
+run_and_avg() {
+  local bin="$1"
+  shift
+  local args=("$@")
+  local total=0
+  local success=0
+  for i in $(seq 1 $REPEATS); do
+    echo -n "  [$bin] run $i/$REPEATS ... "
+    res=$(run_prog "$bin" "${args[@]}")
+    if [[ "$res" == ERR:* ]]; then
+      echo "falhou ($res)"
+    else
+      echo "${res} ms"
+      total=$((total + res))
+      success=$((success + 1))
+    fi
+  done
 
-  # Verificar se os arquivos foram criados e copiar com nome específico
-  if [ -f "data/M1.txt" ]; then
-    cp data/M1.txt data/M1_${tamanho}.txt
-    cp data/M2.txt data/M2_${tamanho}.txt
-  elif [ -f "data/matrix1.txt" ]; then
-    cp data/matrix1.txt data/M1_${tamanho}.txt
-    cp data/matrix2.txt data/M2_${tamanho}.txt
+  if [ "$success" -gt 0 ]; then
+    avg=$((total / success))
+  else
+    avg=-1
+  fi
+  echo "$avg,$success"
+}
+
+size=$START_SIZE
+while true; do
+  echo
+  echo "==> Testando tamanho ${size}x${size}"
+
+  # Gera matrizes (auxiliar sempre grava em ../data)
+  pushd "$SRC_DIR" >/dev/null
+  ./auxiliar "$size" "$size" "$size" "$size"
+  aux_code=$?
+  popd >/dev/null
+  if [ $aux_code -ne 0 ]; then
+    echo "Falha ao gerar matrizes com auxiliar. Abortando."
+    exit 1
   fi
 
-  # Calcular P = ceil((tamanho * tamanho) / 8)
-  p_value=$(echo "($tamanho * $tamanho + 7) / 8" | bc)
-  echo "Valor de P: $p_value"
-  echo ""
+  # Checa se arquivos foram gerados
+  if [ ! -s "$DATA_DIR/M1.txt" ] || [ ! -s "$DATA_DIR/M2.txt" ]; then
+    echo "Arquivos de matrizes não foram gerados corretamente. Abortando."
+    exit 1
+  fi
 
-  # Executar programa sequencial
-  executar_teste "sequencial" "data/M1_${tamanho}.txt" "data/M2_${tamanho}.txt" "" $tamanho
+  # Calcula P = ceil(n1*m2 / 8)
+  p_param=$(
+    python3 - <<PY
+import math
+n = $size
+print(math.ceil((n * n) / 8))
+PY
+  )
+  echo "Usando p = $p_param para threads/processos."
 
-  # Pegar o tempo médio do sequencial para verificar se passou de 2 minutos
-  max_tempo_sequencial=$(tail -n 1 $RESULTADO | cut -d',' -f3)
+  # Sequencial
+  echo "Executando sequencial..."
+  seq_info=$(run_and_avg "sequencial" "../data/M1.txt" "../data/M2.txt")
+  seq_avg=$(echo "$seq_info" | cut -d',' -f1)
+  seq_success=$(echo "$seq_info" | cut -d',' -f2)
+  echo "Sequencial: avg=${seq_avg} ms (success=${seq_success}/${REPEATS})"
+  echo "sequencial,$size,$seq_avg,$seq_success,$REPEATS" >>"$OUT_CSV"
 
-  # Executar programa com threads
-  executar_teste "threads" "data/M1_${tamanho}.txt" "data/M2_${tamanho}.txt" $p_value $tamanho
-
-  # Executar programa com processos
-  executar_teste "processos" "data/M1_${tamanho}.txt" "data/M2_${tamanho}.txt" $p_value $tamanho
-
-  echo ""
-  echo "Tempo sequencial atual: ${max_tempo_sequencial}s"
-
-  # Verificar se já passou de 120 segundos (2 minutos)
-  if [ $(echo "$max_tempo_sequencial >= 120" | bc) -eq 1 ]; then
-    echo "Tempo sequencial atingiu 2 minutos. Finalizando experimento."
+  # Critério de parada: tempo médio do sequencial >= 2 min
+  if [ "$seq_avg" -ge "$SEQ_STOP_MS" ]; then
+    echo "Tempo médio do sequencial >= 2 minutos. Encerrando experimentos."
     break
   fi
 
-  # Dobrar o tamanho
-  tamanho=$((tamanho * 2))
+  # Threads
+  echo "Executando threads..."
+  threads_info=$(run_and_avg "threads" "../data/M1.txt" "../data/M2.txt" "$p_param")
+  threads_avg=$(echo "$threads_info" | cut -d',' -f1)
+  threads_success=$(echo "$threads_info" | cut -d',' -f2)
+  echo "Threads: avg=${threads_avg} ms (success=${threads_success}/${REPEATS})"
+  echo "threads,$size,$threads_avg,$threads_success,$REPEATS" >>"$OUT_CSV"
+
+  # Processos
+  echo "Executando processos..."
+  procs_info=$(run_and_avg "processos" "../data/M1.txt" "../data/M2.txt" "$p_param")
+  procs_avg=$(echo "$procs_info" | cut -d',' -f1)
+  procs_success=$(echo "$procs_info" | cut -d',' -f2)
+  echo "Processos: avg=${procs_avg} ms (success=${procs_success}/${REPEATS})"
+  echo "processos,$size,$procs_avg,$procs_success,$REPEATS" >>"$OUT_CSV"
+
+  # Dobra tamanho
+  size=$((size * 2))
 done
 
-echo ""
-echo "======================================"
-echo "Experimento concluído!"
-echo "======================================"
-echo "Resultados salvos em: $RESULTADO"
-echo ""
-echo "Para gerar o gráfico, execute:"
-echo "python3 gerar_grafico.py"
+echo
+echo "Experimento concluído. Resultados em: $OUT_CSV"
